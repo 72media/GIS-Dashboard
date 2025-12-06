@@ -1,0 +1,814 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GIS Dashboard V9 (Southern Deep Scan)</title>
+    
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin=""/>
+    <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@300;400;700&display=swap" rel="stylesheet">
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet-src.js" integrity="sha256-tPonvXioSHRQt1+4ztWR5mz/1KG1X3yHNzVXprP2gLo=" crossorigin=""></script>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet-omnivore/0.3.4/leaflet-omnivore.min.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet.draw/1.0.4/leaflet.draw.css" />
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet.draw/1.0.4/leaflet.draw.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <script src="https://unpkg.com/jszip@3.10.1/dist/jszip.min.js"></script>
+
+    <style>
+        body { padding: 0; margin: 0; font-family: 'Sarabun', Arial, sans-serif; overflow: hidden; }
+        html, body, #map { height: 100%; width: 100vw; }
+        
+        /* Layer Control */
+        .leaflet-control-layers { border-radius: 8px; box-shadow: 0 4px 15px rgba(0,0,0,0.2) !important; padding: 0 !important; overflow: hidden; }
+        .leaflet-control-layers-list { padding: 10px; max-height: 80vh; overflow-y: auto; }
+        .layer-item { display: inline-block; width: 100%; padding: 4px 8px; border-radius: 4px; margin-bottom: 2px; font-size: 13px; font-weight: 500; }
+        
+        .grp-sat { background-color: #e3f2fd; color: #0d47a1; border-left: 4px solid #0d47a1; }
+        .grp-world { background-color: #e8f5e9; color: #1b5e20; border-left: 4px solid #1b5e20; }
+        .grp-thai { background-color: #fff3e0; color: #e65100; border-left: 4px solid #e65100; }
+
+        .enhanced-wind-layer { filter: brightness(1.2) contrast(1.5) saturate(2.0); }
+        .intense-rain { filter: saturate(5.0) contrast(1.3) brightness(0.9); }
+        .intense-cloud { filter: contrast(1.5) brightness(1.1) drop-shadow(0 0 1px rgba(0,0,0,0.5)); }
+        .temp-layer { filter: saturate(1.2) contrast(1.1); }
+
+        /* Forecast Icon Style */
+        .custom-forecast-icon {
+            background-color: #fff; border: 2px solid #0d47a1; border-radius: 50%;
+            text-align: center; line-height: 36px; font-size: 20px;
+            box-shadow: 0 3px 6px rgba(0,0,0,0.3);
+            animation: pulse 2s infinite;
+        }
+        @keyframes pulse {
+            0% { box-shadow: 0 0 0 0 rgba(13, 71, 161, 0.4); }
+            70% { box-shadow: 0 0 0 10px rgba(13, 71, 161, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(13, 71, 161, 0); }
+        }
+
+        /* Buttons Styling */
+        .leaflet-control-import-button, 
+        .leaflet-control-windy-button, 
+        .leaflet-control-ventusky-button,
+        .leaflet-control-meteo-button,
+        .leaflet-control-deepmind-button,
+        .leaflet-control-tmdwind-button { /* เพิ่มคลาสใหม่ตรงนี้ */
+            background-color: white; width: 34px; height: 34px;
+            border: 2px solid rgba(0,0,0,0.2); border-radius: 4px;
+            cursor: pointer; box-shadow: 0 1px 5px rgba(0,0,0,0.65);
+            display: flex; align-items: center; justify-content: center; margin-bottom: 6px;
+            transition: all 0.2s ease;
+        }
+        .leaflet-control-import-button:hover, 
+        .leaflet-control-windy-button:hover, 
+        .leaflet-control-ventusky-button:hover,
+        .leaflet-control-meteo-button:hover,
+        .leaflet-control-deepmind-button:hover,
+        .leaflet-control-tmdwind-button:hover { /* เพิ่มคลาสใหม่ตรงนี้ */
+            background-color: #f0f0f0; 
+            transform: scale(1.05);
+        }
+        
+        .leaflet-control-import-button svg { width: 20px; height: 20px; fill: #333; }
+        .control-logo { width: 24px; height: 24px; object-fit: contain; filter: drop-shadow(0 1px 2px rgba(0,0,0,0.2)); }
+
+        #file-input { display: none; }
+
+        /* Info Panel */
+        #info-panel {
+            position: absolute; top: 10px; right: 10px; width: 300px;
+            background: rgba(255, 255, 255, 0.98); border: 1px solid #999;
+            border-radius: 8px; box-shadow: 0 3px 12px rgba(0,0,0,0.3);
+            z-index: 1000; overflow: hidden; transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1); font-size: 13px;
+        }
+        #info-panel.collapsed { width: 40px !important; height: 40px !important; border-radius: 20px; cursor: pointer; }
+        #info-panel.collapsed #info-header span { display: none; }
+        #info-panel.collapsed #info-header { padding: 0; justify-content: center; height: 100%; }
+        #info-header { background: #2c7fb8; color: white; padding: 10px 15px; font-weight: bold; display: flex; justify-content: space-between; align-items: center; }
+        #info-content { padding: 15px; display: block; }
+        #info-panel.collapsed #info-content { display: none; }
+        .info-item { margin: 8px 0; padding: 10px; background: #f0f8ff; border-radius: 5px; font-size: 12.5px; line-height: 1.4; border-left: 4px solid #2c7fb8; }
+        .toggle-btn { background: none; border: none; color: white; font-size: 20px; cursor: pointer; font-weight: bold; width: 30px; text-align: center; }
+        #time-box { font-weight: bold; color: #2c7fb8; margin-bottom: 15px; font-size: 18px; text-align: center; }
+        #opacity-slider-box, .date-picker-box { margin-top: 15px; padding-top: 10px; border-top: 1px solid #eee; }
+        label { font-size: 12px; color: #555; display: block; margin-bottom: 5px; }
+        input[type="range"] { width: 100%; }
+        input[type="date"] { width: 100%; padding: 6px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; font-family: 'Sarabun', sans-serif;}
+
+        /* Modal (Marker Input) */
+        .modal-backdrop {
+            display: none; position: fixed; z-index: 4000; left: 0; top: 0; width: 100%; height: 100%;
+            background-color: rgba(0, 0, 0, 0.5); justify-content: center; align-items: center;
+        }
+        .modal-content {
+            background-color: white; padding: 20px; border-radius: 8px; width: 90%; max-width: 400px;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.3);
+        }
+        #marker-form input, #marker-form textarea {
+            width: 100%; padding: 8px; margin-top: 5px; border: 1px solid #ccc; border-radius: 4px;
+            box-sizing: border-box; font-family: 'Sarabun', sans-serif;
+        }
+        #marker-form-buttons { margin-top: 20px; text-align: right; }
+        button { padding: 8px 15px; border-radius: 5px; border: none; cursor: pointer; }
+        button[type="submit"] { background: #2c7fb8; color: white; }
+        button[type="button"] { background: #ddd; color: #333; margin-right: 5px; }
+
+        /* --- Fullscreen Modal Styles --- */
+        .fullscreen-overlay {
+            display: none; position: fixed; z-index: 3000; 
+            left: 0; top: 0; width: 100%; height: 100%;
+            background: transparent; pointer-events: none; 
+        }
+        .fullscreen-header {
+            height: 40px; background: rgba(30, 30, 30, 0.95); color: white; 
+            display: flex; justify-content: space-between; align-items: center; padding: 0 20px;
+            border-bottom: 1px solid #555; pointer-events: auto; 
+        }
+        .fullscreen-header-left { display: flex; align-items: center; gap: 20px; }
+        .fullscreen-close { 
+            cursor: pointer; font-weight: bold; font-size: 16px; background: #d0021b; 
+            padding: 2px 10px; border-radius: 4px;
+        }
+        .fullscreen-iframe-container { 
+            width: 100%; height: calc(100% - 40px); background: transparent; 
+            pointer-events: auto; transition: opacity 0.1s;
+        }
+        .fullscreen-iframe-container iframe {
+            width: 100% !important; height: 100% !important; border: none; display: block;
+        }
+
+        .opacity-control { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+        .opacity-slider { width: 140px; cursor: pointer; }
+        
+        .leaflet-popup-content { 
+            font-family: 'Sarabun', sans-serif; line-height: 1.5; 
+            width: auto !important; min-width: 320px !important; max-width: 600px !important;
+        }
+        .leaflet-popup-content iframe {
+            width: 100% !important; height: auto !important; aspect-ratio: 16 / 9;
+            border: none; border-radius: 4px; margin-top: 5px; display: block;
+        }
+        .leaflet-popup-content img { max-width: 100%; height: auto; border-radius: 4px; margin-top: 5px; }
+        .leaflet-popup-content h3 { margin-top: 0; margin-bottom: 5px; color: #2c7fb8; border-bottom: 1px solid #eee; padding-bottom: 5px; }
+    </style>
+</head>
+<body>
+
+<div id="windy-overlay" class="fullscreen-overlay">
+    <div class="fullscreen-header">
+        <div class="fullscreen-header-left">
+            <span style="font-size:16px; font-weight:bold;">Windy Overlay</span>
+            <div class="opacity-control">
+                <label style="color:#ddd; margin:0;">ความโปร่งใส:</label>
+                <input type="range" id="windy-slider" class="opacity-slider" min="0" max="1" step="0.01" value="1">
+            </div>
+        </div>
+        <span id="windy-close" class="fullscreen-close">ปิด X</span>
+    </div>
+    <div id="windy-iframe-container" class="fullscreen-iframe-container">
+        <iframe id="windy-iframe" width="100%" height="100%" frameborder="0"></iframe>
+    </div>
+</div>
+
+<div id="ventusky-overlay" class="fullscreen-overlay">
+    <div class="fullscreen-header">
+        <div class="fullscreen-header-left">
+            <span style="font-size:16px; font-weight:bold; color: #ff4500;">Ventusky Overlay</span>
+            <div class="opacity-control">
+                <label style="color:#ddd; margin:0;">ความโปร่งใส:</label>
+                <input type="range" id="ventusky-slider" class="opacity-slider" min="0" max="1" step="0.01" value="1">
+            </div>
+        </div>
+        <span id="ventusky-close" class="fullscreen-close">ปิด X</span>
+    </div>
+    <div id="ventusky-iframe-container" class="fullscreen-iframe-container">
+        <iframe id="ventusky-iframe" width="100%" height="100%" frameborder="0"></iframe>
+    </div>
+</div>
+
+<div id="meteo-overlay" class="fullscreen-overlay">
+    <div class="fullscreen-header">
+        <div class="fullscreen-header-left">
+            <span style="font-size:16px; font-weight:bold; color: #00008b;">Meteoblue Overlay</span>
+            <div class="opacity-control">
+                <label style="color:#ddd; margin:0;">ความโปร่งใส:</label>
+                <input type="range" id="meteo-slider" class="opacity-slider" min="0" max="1" step="0.01" value="1">
+            </div>
+        </div>
+        <span id="meteo-close" class="fullscreen-close">ปิด X</span>
+    </div>
+    <div id="meteo-iframe-container" class="fullscreen-iframe-container">
+        <iframe id="meteo-iframe" width="100%" height="100%" frameborder="0" scrolling="NO" allowtransparency="true" sandbox="allow-same-origin allow-scripts allow-popups allow-popups-to-escape-sandbox"></iframe>
+    </div>
+</div>
+
+<div id="marker-modal">
+    <div class="modal-backdrop"> 
+        <div class="modal-content">
+            <h3 style="margin-top:0; color:#2c7fb8;">เพิ่มรายละเอียดหมุด</h3>
+            <form id="marker-form">
+                <label>ชื่อจุด:</label>
+                <input type="text" id="marker-title" required placeholder="เช่น จุดน้ำท่วม">
+                <label>รายละเอียด (ใส่ iframe YouTube หรือ HTML ได้เลย):</label>
+                <textarea id="marker-desc" rows="4" placeholder="ใส่ข้อความ หรือ โค้ด <iframe...> ที่นี่"></textarea>
+                <div id="marker-form-buttons">
+                    <button type="button" id="cancel-marker-btn">ยกเลิก</button>
+                    <button type="submit">บันทึก</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<input type="file" id="file-input" accept=".gpx, .geojson, .json, .kml, .kmz"/>
+<div id="map"></div>
+
+<div id="info-panel">
+    <div id="info-header">
+        <span>ข้อมูลสภาพอากาศ</span>
+        <button class="toggle-btn" onclick="toggleInfo()">−</button>
+    </div>
+    <div id="info-content">
+        <div id="time-box">กำลังโหลดเวลา...</div>
+        <div class="date-picker-box">
+            <label>เลือกวันที่ดาวเทียม (NASA):</label>
+            <input type="date" id="nasa-date-picker">
+        </div>
+        <div id="active-layer" style="margin-top:10px; font-weight:bold;">สถานะ: ไม่มีเลเยอร์</div>
+        <div id="layer-desc"></div>
+        <div id="opacity-slider-box" style="display: none;">
+            <label id="opacity-slider-label">ความโปร่งใส:</label>
+            <input type="range" id="opacity-slider" min="0" max="1" step="0.05" value="0.8">
+        </div>
+    </div>
+</div>
+
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+
+        var map = L.map('map', { zoomControl: false }).setView([13.7, 100.5], 5);
+        L.control.zoom({ position: 'topleft' }).addTo(map);
+        L.control.scale({ imperial: false, position: 'bottomleft' }).addTo(map);
+
+        map.createPane('satellitePane'); map.getPane('satellitePane').style.zIndex = 200;
+        map.createPane('weatherPane');   map.getPane('weatherPane').style.zIndex = 300; 
+        map.createPane('rainPane');      map.getPane('rainPane').style.zIndex = 400;
+        map.createPane('chartPane');     map.getPane('chartPane').style.zIndex = 500;
+        map.createPane('forecastPane');  map.getPane('forecastPane').style.zIndex = 600;
+
+        var osmLayer = L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { attribution: "© OSM" });
+        var googleHybrid = L.tileLayer("https://{s}.google.com/vt/lyrs=s,h&x={x}&y={y}&z={z}", { maxZoom: 20, subdomains:['mt0','mt1','mt2','mt3'], attribution: "Google" });
+        var openTopo = L.tileLayer("https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png", { maxZoom: 17, attribution: "OpenTopoMap" });
+        var baseMaps = { "OpenStreetMap": osmLayer, "OpenTopoMap": openTopo, "Google Hybrid": googleHybrid };
+        googleHybrid.addTo(map);
+
+        function getNASADate() { const d = new Date(); return d.toISOString().split('T')[0]; }
+        var today = getNASADate();
+        var noaa20 = L.tileLayer(`https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/VIIRS_NOAA20_CorrectedReflectance_TrueColor/default/${today}/GoogleMapsCompatible_Level9/{z}/{y}/{x}.png`, { attribution: 'NASA NOAA-20', opacity: 0.8, pane: 'satellitePane' });
+        var snpp = L.tileLayer(`https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/VIIRS_SNPP_CorrectedReflectance_TrueColor/default/${today}/GoogleMapsCompatible_Level9/{z}/{y}/{x}.png`, { attribution: 'NASA Suomi NPP', opacity: 0.8, pane: 'satellitePane' });
+
+        var OWM_API_KEY = '977c2d445743104688181d0eb326058a'; 
+        var precipLayer = L.tileLayer(`https://tile.openweathermap.org/map/precipitation_new/{z}/{x}/{y}.png?appid=${OWM_API_KEY}`, { attribution: 'OpenWeatherMap', opacity: 1.0, pane: 'weatherPane', className: 'intense-rain' });
+        var cloudsLayer = L.tileLayer(`https://tile.openweathermap.org/map/clouds_new/{z}/{x}/{y}.png?appid=${OWM_API_KEY}`, { attribution: 'OpenWeatherMap', opacity: 1.0, pane: 'weatherPane', className: 'intense-cloud' });
+        var windSpeedLayer = L.tileLayer(`https://tile.openweathermap.org/map/wind_new/{z}/{x}/{y}.png?appid=${OWM_API_KEY}`, { attribution: 'OpenWeatherMap', opacity: 1.0, pane: 'weatherPane', className: 'enhanced-wind-layer' });
+        var tempLayer = L.tileLayer(`https://tile.openweathermap.org/map/temp_new/{z}/{x}/{y}.png?appid=${OWM_API_KEY}`, { attribution: 'OpenWeatherMap', opacity: 1.0, pane: 'weatherPane', className: 'temp-layer' });
+
+        var weatherChartBounds = [[-20.24, 55.03], [45.55, 160.03]];
+        var weatherChart = L.imageOverlay('http://www.pbwatch.net/WRS/weather/images/lastest_wc.jpg', weatherChartBounds, { opacity: 0.38, attribution: 'PBWatch', pane: 'chartPane' });
+        var radarBounds = [[2.29, 93.25], [25.80, 111.85]];
+        var radarTMD = L.imageOverlay("https://satda.tmd.go.th/wp-content/uploads/data/radar_composite/max/composite_th_latest.gif", radarBounds, { opacity: 0.7, pane: 'weatherPane' });
+        
+        var thBounds = [[3.71, 95.90], [22.39, 107.62]];
+        var rain1d = L.imageOverlay('https://hydro1.hii.or.th/product/latest/isohyet/v1.0/thailand/acc01d_rain_nhc.png', thBounds, { opacity: 0.5, pane: 'rainPane' });
+        var rain3d = L.imageOverlay('https://hydro1.hii.or.th/product/latest/isohyet/v1.0/thailand/acc03d_rain_nhc.png', thBounds, { opacity: 0.5, pane: 'rainPane' });
+        var rain7d = L.imageOverlay('https://hydro1.hii.or.th/product/latest/isohyet/v1.0/thailand/acc07d_rain_nhc.png', thBounds, { opacity: 0.5, pane: 'rainPane' });
+        
+        // *** ลบ windTMD imageOverlay ออกไปเนื่องจากเกิดปัญหา Mixed Content ***
+        // var windTMD_Bounds = [[-0.0, 95.0], [25.0, 110.0]];
+        // var windTMD = L.imageOverlay('http://www.sattmet.tmd.go.th/satmet/surfac_wind_psea/wind_surfac_psea.html', windTMD_Bounds, { opacity: 0.7, attribution: 'TMD', pane: 'chartPane' });
+        
+        // --- PART 1: Forecast Logic (Yr.no) ---
+        var forecastLayerGroup = L.layerGroup();
+        var forecastIcon = L.divIcon({
+            className: 'custom-forecast-icon',
+            html: "⛈️",
+            iconSize: [36, 36],
+            iconAnchor: [18, 18],
+            popupAnchor: [0, -20]
+        });
+
+        var forecastStations = [
+            { name: "อ.หาดใหญ่ (สงขลา)", lat: 7.0084, lng: 100.4767, id: "1610780" },
+            { name: "อ.เมืองสงขลา", lat: 7.1756, lng: 100.6143, id: "1606147" },
+            { name: "อ.เมืองปัตตานี", lat: 6.8696, lng: 101.2501, id: "1607978" },
+            { name: "อ.เมืองยะลา", lat: 6.5400, lng: 101.2813, id: "1604870" },
+            { name: "อ.เมืองนราธิวาส", lat: 6.4255, lng: 101.8253, id: "1608409" },
+            { name: "อ.เมืองสตูล", lat: 6.6238, lng: 100.0674, id: "1606376" },
+            { name: "อ.เมืองพัทลุง", lat: 7.6167, lng: 100.0833, id: "1607779" },
+            { name: "อ.เมืองตรัง", lat: 7.5563, lng: 99.6114, id: "1150007" },
+            { name: "อ.เมืองนครศรีธรรมราช", lat: 8.4333, lng: 99.9667, id: "1151933" },
+            { name: "อ.เมืองสุราษฎร์ธานี", lat: 9.1482, lng: 99.3262, id: "1150515" },
+            { name: "อ.เมืองกระบี่", lat: 8.0726, lng: 98.9105, id: "1152633" },
+            { name: "อ.เมืองภูเก็ต", lat: 7.8804, lng: 98.3923, id: "1151254" },
+            { name: "อ.เมืองระนอง", lat: 9.9658, lng: 98.6348, id: "1150965" },
+            { name: "อ.เมืองชุมพร", lat: 10.4930, lng: 99.1800, id: "1153557" },
+            { name: "อ.เบตง (ยะลา)", lat: 5.7743, lng: 101.0711, id: "1611635" },
+            { name: "อ.ร่อนพิบูลย์", lat: 8.17911, lng: 99.85425, id: "1150921" },
+            { name: "อ.เกาะสมุย", lat: 9.53567, lng: 99.93567, id: "1154689" },
+            { name: "อ.ทุ่งสง (นครศรีฯ)", lat: 8.1646, lng: 99.6804, id: "1150085" },
+            { name: "บ้านคีรีวง", lat: 8.43045, lng: 99.78104, id: "1119630" },
+            { name: "เขารามโรม", lat: 8.23353, lng: 99.79172, id: "8242731" },
+            { name: "เขาหลวง", lat: 8.54658, lng: 99.73331, id: "8243612" },
+            { name: "อ.สุไหงโก-ลก (นราธิวาส)", lat: 6.0298, lng: 101.9659, id: "1606050" },
+            { name: "อ.เกาะลันตา (กระบี่)", lat: 7.5348, lng: 99.0493, id: "1152670" }
+        ];
+
+        forecastStations.forEach(item => {
+            var marker = L.marker([item.lat, item.lng], { icon: forecastIcon, pane: 'forecastPane' }).addTo(forecastLayerGroup);
+            var svgUrl = `https://www.yr.no/en/content/2-${item.id}/meteogram.svg`;
+            var detailUrl = `https://www.yr.no/en/details/graph/2-${item.id}`; 
+            
+            var popupContent = `
+                <div style="text-align:center; min-width: 320px;">
+                    <h4 style="margin:0 0 5px; color:#0d47a1;">${item.name}</h4>
+                    <p style="font-size:12px; color:gray; margin-bottom:5px;">กราฟพยากรณ์ 48 ชม. (Yr.no)</p>
+                    <div style="background:white; padding:5px; border:1px solid #eee; border-radius:5px; margin-bottom:10px;">
+                        <img src="${svgUrl}" style="width:100%; height:auto; display:block;">
+                    </div>
+                    
+                    <a href="${detailUrl}" target="_blank" style="text-decoration:none;">
+                        <div style="background:#0d47a1; color:white; padding:8px; border-radius:4px; cursor:pointer; font-size:13px; font-weight:bold;">
+                            📊 ดูรายละเอียดเพิ่มเติม (เปิดแท็บใหม่ ↗)
+                        </div>
+                    </a>
+                </div>
+            `;
+            marker.bindPopup(popupContent, { maxWidth: 650 });
+        });
+
+        // --- PART 2: AQICN (WAQI) Logic [SOUTHERN DEEP SCAN] ---
+        var aqicnLayer = L.layerGroup();
+        var waqiToken = '3ed086b39fc0e2de05a6a5232555270e4cdae838'; // Token ของคุณ
+
+        function getWaqiColor(aqi) {
+            if (aqi <= 50) return "#009966";      // Good
+            else if (aqi <= 100) return "#ffde33"; // Moderate
+            else if (aqi <= 150) return "#ff9933"; // Unhealthy for Sensitive
+            else if (aqi <= 200) return "#cc0033"; // Unhealthy
+            else if (aqi <= 300) return "#660099"; // Very Unhealthy
+            else return "#7e0023";                 // Hazardous
+        }
+        
+        // ใช้ Set เพื่อจำว่าสถานีไหนเพิ่มไปแล้ว จะได้ไม่ซ้ำ
+        var addedStations = new Set();
+
+        function addStationToMap(station) {
+            var uid = station.uid;
+            
+            // ตรวจสอบว่าสถานีนี้เคยเพิ่มไปหรือยัง
+            if (!addedStations.has(uid)) {
+                addedStations.add(uid); // จดจำว่าเพิ่มแล้ว
+                
+                var lat = station.lat;
+                var lng = station.lon;
+                var aqi = parseInt(station.aqi);
+
+                if (!isNaN(aqi) && lat && lng) {
+                    var color = getWaqiColor(aqi);
+                    var marker = L.circleMarker([lat, lng], {
+                        radius: 7, fillColor: color, color: "#fff",
+                        weight: 1, opacity: 1, fillOpacity: 0.9, pane: 'weatherPane'
+                    });
+
+                    // Popup เริ่มต้น
+                    var initialContent = `
+                        <div style="min-width: 200px; text-align: center; font-family: 'Sarabun';">
+                            <div style="margin-bottom:5px; font-weight:bold; color:#555;">Station ID: ${uid}</div>
+                            <div style="font-size:24px; font-weight:bold; color:${color}; margin:10px 0;">${aqi}</div>
+                            <div style="font-size:12px; color:#888;">⏳ กำลังโหลดรายละเอียด...</div>
+                        </div>`;
+                    marker.bindPopup(initialContent);
+
+                    // ดึงรายละเอียด (ชื่อ) เมื่อคลิก
+                    marker.on('popupopen', function() {
+                        fetch(`https://api.waqi.info/feed/@${uid}/?token=${waqiToken}`)
+                            .then(r => r.json())
+                            .then(d => {
+                                if(d.status === 'ok') {
+                                    var info = d.data;
+                                    var finalContent = `
+                                        <div style="min-width: 200px; text-align: center; font-family: 'Sarabun';">
+                                            <h4 style="margin:0; font-size:13px; border-bottom:1px solid #eee; padding-bottom:5px;">${info.city.name}</h4>
+                                            <div style="margin-top:10px;">
+                                                <div style="font-size:10px; color:#666;">AQI (ดัชนีคุณภาพอากาศ)</div>
+                                                <div style="font-size:28px; font-weight:bold; color:${color};">${info.aqi}</div>
+                                            </div>
+                                            <div style="display:flex; justify-content:center; gap:10px; margin-top:5px; font-size:11px;">
+                                                <div>PM2.5: <b>${info.iaqi.pm25 ? info.iaqi.pm25.v : '-'}</b></div>
+                                                <div>PM10: <b>${info.iaqi.pm10 ? info.iaqi.pm10.v : '-'}</b></div>
+                                            </div>
+                                            <div style="font-size:9px; color:#ccc; margin-top:5px;">Updated: ${info.time.s}</div>
+                                        </div>`;
+                                    marker.setPopupContent(finalContent);
+                                }
+                            });
+                    });
+
+                    aqicnLayer.addLayer(marker);
+                }
+            }
+        }
+
+        // --- Deep Scan Function: เจาะจงค้นหารายจังหวัดภาคใต้ ---
+        // วิธีนี้จะได้สถานีครบกว่าการกวาดพื้นที่ (Map Bounds) เพราะเป็นการเจาะจงชื่อ
+        function deepScanSouthern() {
+            console.log("📡 เริ่ม Deep Scan 14 จังหวัดภาคใต้...");
+            
+            // รายชื่อจังหวัดภาคใต้ (ภาษาอังกฤษตามฐานข้อมูล WAQI)
+            var southernProvinces = [
+                "Phuket", "Songkhla", "Nakhon Si Thammarat", "Surat Thani", 
+                "Yala", "Pattani", "Narathiwat", "Trang", "Phatthalung", 
+                "Satun", "Krabi", "Phang Nga", "Ranong", "Chumphon"
+            ];
+
+            // 1. สแกนรายจังหวัด
+            southernProvinces.forEach(province => {
+                var url = `https://api.waqi.info/search/?keyword=${province}&token=${waqiToken}`;
+                fetch(url).then(res => res.json()).then(data => {
+                    if (data.status === 'ok' && data.data) {
+                        data.data.forEach(station => {
+                            // API search ให้ข้อมูล geo เป็น array [lat, lon]
+                            if(station.station.geo) {
+                                var formattedStation = {
+                                    uid: station.uid,
+                                    lat: station.station.geo[0],
+                                    lon: station.station.geo[1],
+                                    aqi: station.aqi
+                                };
+                                addStationToMap(formattedStation);
+                            }
+                        });
+                    }
+                });
+            });
+
+            // 2. สแกนภาพรวมประเทศเสริม (เพื่อให้ภาคอื่นยังขึ้นอยู่)
+            var boundsUrl = `https://api.waqi.info/map/bounds/?token=${waqiToken}&latlng=5.6,97.3,20.5,105.7`;
+            fetch(boundsUrl).then(res => res.json()).then(data => {
+                if (data.status === 'ok' && data.data) {
+                    data.data.forEach(station => {
+                        addStationToMap(station);
+                    });
+                }
+            });
+        }
+        
+        // เรียกใช้งาน Deep Scan
+        deepScanSouthern();
+        // --- END AQICN Logic ---
+
+        var orderedOverlays = {};
+        var boundsMap = {};
+
+        orderedOverlays["<span class='layer-item grp-sat'>🛰️ NOAA-20 (NASA)</span>"] = noaa20;
+        orderedOverlays["<span class='layer-item grp-sat'>🛰️ Suomi NPP (NASA)</span>"] = snpp;
+        orderedOverlays["<span class='layer-item grp-world'>🌍 ปริมาณฝน (Precip)</span>"] = precipLayer; 
+        orderedOverlays["<span class='layer-item grp-world'>☁️ เมฆปกคลุม (Clouds)</span>"] = cloudsLayer;
+        orderedOverlays["<span class='layer-item grp-world'>💨 ความเร็วลม (Wind)</span>"] = windSpeedLayer;
+        orderedOverlays["<span class='layer-item grp-world'>🌡️ อุณหภูมิ (Temp)</span>"] = tempLayer;
+        orderedOverlays["<span class='layer-item grp-thai'>📡 เรดาร์ TMD</span>"] = radarTMD;
+        orderedOverlays["<span class='layer-item grp-thai'>🗺️ แผนที่อากาศผิวพื้น</span>"] = weatherChart;
+        
+        // ลบ windTMD ออกจาก Overlays เนื่องจากตอนนี้เป็นปุ่มแล้ว
+        // orderedOverlays["<span class='layer-item grp-thai'>💨 ลมผิวพื้น & ทะเล (TMD)</span>"] = windTMD; 
+
+        orderedOverlays["<span class='layer-item grp-thai'>💧 ฝนสะสม 1 วัน (HII)</span>"] = rain1d;
+        orderedOverlays["<span class='layer-item grp-thai'>💧 ฝนสะสม 3 วัน (HII)</span>"] = rain3d;
+        orderedOverlays["<span class='layer-item grp-thai'>💧 ฝนสะสม 7 วัน (HII)</span>"] = rain7d;
+        
+        // ใช้ชื่อใหม่เป็น AQICN
+        orderedOverlays["<span class='layer-item grp-thai'>😷 ฝุ่น AQI (AQICN)</span>"] = aqicnLayer;
+        orderedOverlays["<span class='layer-item grp-thai'>⛈️ พยากรณ์ 48 ชม. (Yr.no)</span>"] = forecastLayerGroup;
+
+        boundsMap["<span class='layer-item grp-thai'>📡 เรดาร์ TMD</span>"] = radarBounds;
+        boundsMap["<span class='layer-item grp-thai'>🗺️ แผนที่อากาศผิวพื้น</span>"] = weatherChartBounds;
+        // ลบ windTMD_Bounds ออก
+        // boundsMap["<span class='layer-item grp-thai'>💨 ลมผิวพื้น & ทะเล (TMD)</span>"] = windTMD_Bounds; 
+
+        var layerControl = L.control.layers(baseMaps, orderedOverlays, { collapsed: true, position: 'topleft' }).addTo(map);
+
+        var drawnItems = new L.FeatureGroup().addTo(map);
+        var drawControl = new L.Control.Draw({ position: 'topleft', draw: { polyline: true, polygon: true, rectangle: true, circle: true, marker: true }, edit: { featureGroup: drawnItems } });
+        map.addControl(drawControl);
+        
+        var tempLayer = null; 
+        map.on(L.Draw.Event.CREATED, function (e) {
+            var layer = e.layer;
+            if (e.layerType === 'marker') {
+                tempLayer = layer;
+                document.querySelector('.modal-backdrop').style.display = 'flex';
+                document.getElementById('marker-title').focus();
+            } else { drawnItems.addLayer(layer); }
+        });
+
+        document.getElementById('marker-form').addEventListener('submit', function(e) {
+            e.preventDefault();
+            if (tempLayer) {
+                var title = document.getElementById('marker-title').value;
+                var rawDesc = document.getElementById('marker-desc').value;
+                var htmlDesc = marked.parse(rawDesc);
+                var content = `<h3>${title}</h3><div style="font-size:14px;">${htmlDesc}</div>`;
+                tempLayer.bindPopup(content, { minWidth: 320, maxWidth: 560 });
+                drawnItems.addLayer(tempLayer);
+                setTimeout(() => { tempLayer.openPopup(); }, 100);
+                document.querySelector('.modal-backdrop').style.display = 'none';
+                document.getElementById('marker-form').reset();
+                tempLayer = null;
+            }
+        });
+
+        document.getElementById('cancel-marker-btn').addEventListener('click', function() {
+            document.querySelector('.modal-backdrop').style.display = 'none';
+            document.getElementById('marker-form').reset();
+            tempLayer = null;
+        });
+
+        function formatStormDate(timestamp) { if (!timestamp) return "-"; var date = new Date(timestamp * 1000); return date.toLocaleString('th-TH', { day: 'numeric', month: 'short', year: '2-digit', hour: '2-digit', minute: '2-digit' }) + " น."; }
+        function knotsToKmh(knots) { return knots ? Math.round(knots * 1.852) : 0; }
+        function getStormColor(wind) { var w = parseInt(wind) || 0; if (w < 34) return "#00a5ff"; else if (w < 64) return "#00ff00"; else if (w < 85) return "#ffff00"; else return "#ff0000"; }
+
+        L.Control.FileImport = L.Control.extend({
+            options: { position: 'topleft' },
+            onAdd: function(map) {
+                var container = L.DomUtil.create('div', 'leaflet-bar leaflet-control');
+                var btn = L.DomUtil.create('a', 'leaflet-control-import-button', container);
+                btn.innerHTML = `<svg viewBox="0 0 24 24"><path d="M9 16h6v-6h4l-7-7-7 7h4v6zm-4 2h14v2H5z"/></svg>`;
+                btn.href = '#'; btn.title = 'นำเข้าไฟล์ GPX, GeoJSON หรือ KMZ';
+                var input = document.getElementById('file-input');
+                L.DomEvent.on(btn, 'click', (e) => { input.click(); L.DomEvent.stop(e); });
+                L.DomEvent.on(input, 'change', this._handleFileChange, this);
+                return container;
+            },
+            _handleFileChange: function(e) {
+                var file = e.target.files[0];
+                if (!file) return;
+                var fileName = file.name;
+                var ext = fileName.split('.').pop().toLowerCase();
+
+                if (ext === 'kmz') {
+                    var reader = new FileReader();
+                    reader.onload = function(event) {
+                        var zip = new JSZip();
+                        zip.loadAsync(event.target.result).then(function(zipContent) {
+                            var kmlFile = Object.keys(zipContent.files).find(name => name.endsWith('.kml'));
+                            if (kmlFile) {
+                                zipContent.file(kmlFile).async("string").then(function(kmlText) {
+                                    var kmlBlob = new Blob([kmlText], {type: 'text/xml'});
+                                    var kmlUrl = URL.createObjectURL(kmlBlob);
+                                    var layer = omnivore.kml(kmlUrl).addTo(map);
+                                    layerControl.addOverlay(layer, "KMZ: " + fileName);
+                                    layer.on('ready', function() {
+                                        this.eachLayer(function(l) {
+                                            if (l.feature && l.feature.properties) {
+                                                var name = l.feature.properties.name || "ไม่มีชื่อ";
+                                                var desc = l.feature.properties.description || "";
+                                                l.bindPopup(`<h3>${name}</h3><div>${desc}</div>`, {maxWidth: 400});
+                                            }
+                                        });
+                                        map.fitBounds(this.getBounds());
+                                        alert("นำเข้า KMZ สำเร็จ: " + fileName);
+                                    });
+                                });
+                            } else { alert("ไม่พบไฟล์ KML ใน KMZ นี้"); }
+                        }).catch(function(err) { alert("เกิดข้อผิดพลาดในการอ่าน KMZ: " + err); });
+                    };
+                    reader.readAsArrayBuffer(file);
+                } else if (ext === 'gpx') {
+                    var reader = new FileReader();
+                    reader.readAsText(file);
+                    reader.onload = function(loadEvent) {
+                        try {
+                            var layer = omnivore.gpx.parse(loadEvent.target.result).addTo(map);
+                            layerControl.addOverlay(layer, "GPX: " + fileName);
+                            layer.on('ready', function() {
+                                this.eachLayer(function(l) {
+                                    if (l.feature && l.feature.properties) {
+                                        var name = l.feature.properties.name || "GPX Point";
+                                        var desc = l.feature.properties.desc || "";
+                                        l.bindPopup(`<h3>${name}</h3><div>${desc}</div>`, {maxWidth: 400});
+                                    }
+                                });
+                                map.fitBounds(this.getBounds());
+                            });
+                        } catch(err) { alert("GPX Error: " + err); }
+                    };
+                } else if (ext === 'json' || ext === 'geojson') {
+                    var reader = new FileReader();
+                    reader.readAsText(file);
+                    reader.onload = function(loadEvent) {
+                        try {
+                            var data = JSON.parse(loadEvent.target.result);
+                            var defaultName = fileName.replace('.json','').replace('.geojson','');
+                            var userStormName = prompt("ตรวจพบไฟล์พายุ: กรุณาระบุชื่อพายุ", defaultName);
+                            var finalName = userStormName || defaultName;
+                            var stormGroup = L.featureGroup();
+                            var latlngs = [];
+                            var geoLayer = L.geoJSON(data, {
+                                pointToLayer: function (feature, latlng) {
+                                    latlngs.push(latlng);
+                                    var w = feature.properties.wind || 0;
+                                    return L.circleMarker(latlng, { radius: 6, fillColor: getStormColor(w), color: "#000", weight: 1, opacity: 1, fillOpacity: 1 });
+                                },
+                                onEachFeature: function (feature, layer) {
+                                    var p = feature.properties;
+                                    var dateStr = formatStormDate(p.time);
+                                    var pressureTxt = p.pressure ? `${p.pressure} มิลลิบาร์` : '-';
+                                    var windKmh = knotsToKmh(p.wind);
+                                    var windTxt = p.wind ? `${windKmh} กม./ชม.` : '-';
+                                    var content = `<div style="font-family:'Sarabun'; min-width:200px;"><div style="background:#2c7fb8; color:white; padding:5px; font-weight:bold; border-radius:4px 4px 0 0;">${finalName}</div><table style="width:100%; font-size:13px; margin-top:5px; border-collapse:collapse;"><tr style="border-bottom:1px solid #eee;"><td><b>ระดับ:</b></td><td>${p.grade || '-'}</td></tr><tr style="border-bottom:1px solid #eee;"><td><b>เวลา:</b></td><td>${dateStr}</td></tr><tr style="border-bottom:1px solid #eee;"><td><b>ความกดอากาศ:</b></td><td>${pressureTxt}</td></tr><tr style="border-bottom:1px solid #eee;"><td><b>ลมสูงสุด:</b></td><td>${windTxt}</td></tr></table></div>`;
+                                    layer.bindPopup(content);
+                                }
+                            });
+                            if (latlngs.length > 0) {
+                                var trackLine = L.polyline(latlngs, { color: 'red', weight: 3, opacity: 1 });
+                                stormGroup.addLayer(trackLine);
+                            }
+                            stormGroup.addLayer(geoLayer);
+                            stormGroup.addTo(map);
+                            layerControl.addOverlay(stormGroup, finalName);
+                            map.fitBounds(stormGroup.getBounds());
+                            alert("นำเข้าพายุสำเร็จ: " + finalName);
+                        } catch (err) { alert("JSON Error: " + err); }
+                    };
+                }
+                e.target.value = '';
+            }
+        });
+        new L.Control.FileImport().addTo(map);
+
+        L.Control.WindyButton = L.Control.extend({
+            options: { position: 'topleft' },
+            onAdd: function(map) {
+                var container = L.DomUtil.create('div', 'leaflet-bar leaflet-control');
+                var btn = L.DomUtil.create('a', 'leaflet-control-windy-button', container);
+                btn.innerHTML = `<img src="https://www.windy.com/favicon.ico" class="control-logo" alt="Windy">`;
+                btn.href = '#'; btn.title = 'เปิดแผนที่ Windy';
+                L.DomEvent.on(btn, 'click', function(e) { 
+                    L.DomEvent.stop(e); 
+                    var iframe = document.getElementById('windy-iframe');
+                    if (!iframe.src || iframe.src === window.location.href || iframe.src === "about:blank") {
+                        iframe.src = "https://embed.windy.com/embed.html?type=map&location=coordinates&metricRain=mm&metricTemp=°C&metricWind=km/h&zoom=4&overlay=wind&product=ecmwf&level=surface&lat=7.101&lon=123.926&pressure=true";
+                    }
+                    document.getElementById('windy-overlay').style.display = 'block'; 
+                });
+                return container;
+            }
+        });
+        new L.Control.WindyButton().addTo(map);
+
+        L.Control.VentuskyButton = L.Control.extend({
+            options: { position: 'topleft' },
+            onAdd: function(map) {
+                var container = L.DomUtil.create('div', 'leaflet-bar leaflet-control');
+                var btn = L.DomUtil.create('a', 'leaflet-control-ventusky-button', container);
+                btn.innerHTML = `<img src="https://www.ventusky.com/favicon.ico" class="control-logo" alt="Ventusky">`;
+                btn.href = '#'; btn.title = 'เปิดแผนที่ Ventusky';
+                L.DomEvent.on(btn, 'click', function(e) {
+                    L.DomEvent.stop(e);
+                    var iframe = document.getElementById('ventusky-iframe');
+                    if (!iframe.src || iframe.src === window.location.href || iframe.src === "about:blank") {
+                        iframe.src = "https://www.ventusky.com/?p=13.0;101.5;5&l=rain-3h";
+                    }
+                    document.getElementById('ventusky-overlay').style.display = 'block';
+                });
+                return container;
+            }
+        });
+        new L.Control.VentuskyButton().addTo(map);
+
+        L.Control.MeteoButton = L.Control.extend({
+            options: { position: 'topleft' },
+            onAdd: function(map) {
+                var container = L.DomUtil.create('div', 'leaflet-bar leaflet-control');
+                var btn = L.DomUtil.create('a', 'leaflet-control-meteo-button', container);
+                btn.innerHTML = `<img src="https://www.meteoblue.com/favicon.ico" class="control-logo" alt="Meteoblue">`;
+                btn.href = '#'; btn.title = 'เปิดแผนที่ Meteoblue';
+                L.DomEvent.on(btn, 'click', function(e) { 
+                    L.DomEvent.stop(e); 
+                    var iframe = document.getElementById('meteo-iframe');
+                    if (!iframe.src || iframe.src === window.location.href || iframe.src === "about:blank") {
+                        iframe.src = "https://www.meteoblue.com/en/weather/maps/widget/hat-yai_thailand_1610780?windAnimation=1&gust=1&satellite=1&cloudsAndPrecipitation=1&temperature=1&sunshine=1&extremeForecastIndex=1&geoloc=fixed&tempunit=C&windunit=km%252Fh&lengthunit=metric&zoom=5&autowidth=auto&user_key=f6e26c0a13b329d1&embed_key=1b674443de7746f6&sig=a0e9fec897c29c39a64c4120523c62b970c7904e0179446a0b4c24c8dce1a22c";
+                    }
+                    document.getElementById('meteo-overlay').style.display = 'block'; 
+                });
+                return container;
+            }
+        });
+        new L.Control.MeteoButton().addTo(map);
+
+        document.getElementById('windy-slider').addEventListener('input', function() { document.getElementById('windy-iframe-container').style.opacity = this.value; });
+        document.getElementById('windy-close').addEventListener('click', function() { document.getElementById('windy-overlay').style.display = 'none'; });
+
+        document.getElementById('ventusky-slider').addEventListener('input', function() { document.getElementById('ventusky-iframe-container').style.opacity = this.value; });
+        document.getElementById('ventusky-close').addEventListener('click', function() { document.getElementById('ventusky-overlay').style.display = 'none'; });
+
+        document.getElementById('meteo-slider').addEventListener('input', function() { document.getElementById('meteo-iframe-container').style.opacity = this.value; });
+        document.getElementById('meteo-close').addEventListener('click', function() { document.getElementById('meteo-overlay').style.display = 'none'; });
+
+        // --- โค้ดที่แก้ไขสำหรับ Google DeepMind Button (เปิดในแท็บใหม่ด้วย URL ที่ถูกต้อง) ---
+        L.Control.DeepMindButton = L.Control.extend({
+            options: { position: 'topleft' },
+            onAdd: function(map) {
+                var container = L.DomUtil.create('div', 'leaflet-bar leaflet-control');
+                var btn = L.DomUtil.create('a', 'leaflet-control-deepmind-button', container);
+                // ใช้สีสัญลักษณ์ของ Google
+                btn.innerHTML = `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" class="control-logo" style="filter:none;">
+                    <path d="M12.2497 10.4357V13.5643H20.0881C19.9863 15.1118 19.467 16.5937 18.5286 17.7554C17.7915 18.6657 16.899 19.3499 15.8927 19.791C14.8864 20.232 13.7925 20.4431 12.6841 20.4431C9.69979 20.4431 7.15243 18.9959 5.62916 16.7143C4.10589 14.4328 3.5975 11.5312 4.20583 8.63346C4.81416 5.73567 6.47166 3.25056 8.92208 1.83921C11.3725 0.427866 14.4173 0.207914 17.0602 1.3464C18.6947 1.99042 20.0638 3.19325 20.9416 4.7171L18.4285 6.47648C17.7656 5.21334 16.7169 4.28825 15.4674 3.79138C14.2178 3.29452 12.8398 3.24227 11.5768 3.66699C9.17647 4.45037 7.42436 6.5599 7.19942 9.07223C6.97448 11.5846 8.32431 13.9189 10.5908 15.0645C12.8574 16.2101 15.6897 16.039 17.7644 14.734C19.3435 13.7431 20.2117 12.1837 20.2497 10.4357H12.2497Z" fill="#FBBC05"/>
+                    <path d="M4.20583 8.63346C3.5975 11.5312 4.10589 14.4328 5.62916 16.7143C7.15243 18.9959 9.69979 20.4431 12.6841 20.4431C13.7925 20.4431 14.8864 20.232 15.8927 19.791C16.899 19.3499 17.7915 18.6657 18.5286 17.7554C19.467 16.5937 19.9863 15.1118 20.0881 13.5643H12.2497V10.4357H20.2497C20.2117 12.1837 19.3435 13.7431 17.7644 14.734C15.6897 16.039 12.8574 16.2101 10.5908 15.0645C8.32431 13.9189 6.97448 11.5846 7.19942 9.07223C6.97448 11.5846 8.32431 13.9189 10.5908 15.0645C12.8574 16.2101 15.6897 16.039 17.7644 14.734L20.2497 18.5V13.5643H12.2497V10.4357H20.2497Z" fill="#4285F4"/>
+                    <path d="M12.6841 20.4431C13.7925 20.4431 14.8864 20.232 15.8927 19.791C16.899 19.3499 17.7915 18.6657 18.5286 17.7554L15.8927 15.996C16.8522 15.0116 17.1591 13.5866 16.756 12.3168C16.353 11.0469 15.3025 10.1517 14.0759 9.87353C12.8492 9.59539 11.5471 9.9796 10.6693 10.8496C9.9028 11.6161 9.55938 12.6983 9.77123 13.7844H12.2497V10.4357H20.2497Z" fill="#EA4335"/>
+                    <path d="M4.20583 8.63346C3.5975 11.5312 4.10589 14.4328 5.62916 16.7143C7.15243 18.9959 9.69979 20.4431 12.6841 20.4431C13.7925 20.4431 14.8864 20.232 15.8927 19.791L18.5286 17.7554C19.467 16.5937 19.9863 15.1118 20.0881 13.5643H12.2497V10.4357H20.2497L17.7644 14.734C15.6897 16.039 12.8574 16.2101 10.5908 15.0645C8.32431 13.9189 6.97448 11.5846 7.19942 9.07223C7.42436 6.5599 9.17647 4.45037 11.5768 3.66699C12.8398 3.24227 14.2178 3.29452 15.4674 3.79138C16.7169 4.28825 17.7656 5.21334 18.4285 6.47648L20.9416 4.7171C20.0638 3.19325 18.6947 1.99042 17.0602 1.3464C14.4173 0.207914 11.3725 0.427866 8.92208 1.83921C6.47166 3.25056 4.81416 5.73567 4.20583 8.63346Z" fill="#34A853"/>
+                </svg>`;
+                btn.href = '#'; 
+                btn.title = 'เปิด Google DeepMind Weather (แท็บใหม่)';
+                L.DomEvent.on(btn, 'click', function(e) { 
+                    L.DomEvent.stop(e); 
+                    window.open("https://deepmind.google.com/science/weatherlab/", "_blank");
+                });
+                return container;
+            }
+        });
+        new L.Control.DeepMindButton().addTo(map);
+        // *** สิ้นสุดโค้ดที่แก้ไข ***
+
+        // *** โค้ดใหม่: ปุ่มเปิดแผนที่ลม TMD ในแท็บใหม่ (แก้ปัญหา Mixed Content) ***
+        L.Control.TMDWindButton = L.Control.extend({
+            options: { position: 'topleft' },
+            onAdd: function(map) {
+                var container = L.DomUtil.create('div', 'leaflet-bar leaflet-control');
+                var btn = L.DomUtil.create('a', 'leaflet-control-tmdwind-button', container);
+                btn.innerHTML = `<span style="font-size:20px; color:#2c7fb8;">🌊</span>`; // ใช้อิโมจิแทนโลโก้
+                btn.href = '#'; btn.title = 'เปิด แผนที่ลมผิวพื้น & สภาพทะเล TMD (แท็บใหม่)';
+                L.DomEvent.on(btn, 'click', function(e) { 
+                    L.DomEvent.stop(e); 
+                    window.open("http://www.sattmet.tmd.go.th/satmet/surfac_wind_psea/wind_surfac_psea.html", "_blank");
+                });
+                return container;
+            }
+        });
+        new L.Control.TMDWindButton().addTo(map);
+        // **********************************************************************
+
+
+        map.on('overlayadd', function(e) {
+            if (boundsMap[e.name]) { map.fitBounds(boundsMap[e.name]); }
+            var tempDiv = document.createElement("div"); tempDiv.innerHTML = e.name;
+            var plainName = tempDiv.textContent || tempDiv.innerText || "";
+            var desc = "Layer: " + plainName;
+            if (plainName.includes("NOAA")) desc = "ภาพถ่ายดาวเทียม VIIRS NOAA-20";
+            else if (plainName.includes("Suomi")) desc = "ภาพถ่ายดาวเทียม VIIRS Suomi NPP";
+            // ลบคำอธิบาย Layer ที่ถูกเปลี่ยนเป็นปุ่ม
+            // else if (plainName.includes("ลมผิวพื้น & ทะเล")) desc = "แผนที่ลมผิวพื้นและสภาพทะเลจากกรมอุตุนิยมวิทยา (TMD) สำหรับบริเวณอ่าวไทยและอันดามัน";
+            else if (plainName.includes("ฝน")) desc = "ปริมาณน้ำฝน (Precipitation)";
+            else if (plainName.includes("อุณหภูมิ")) desc = "อุณหภูมิพื้นผิว (Temperature)";
+            else if (plainName.includes("พยากรณ์ 48 ชม.")) desc = "จุดพยากรณ์อากาศล่วงหน้าจาก Yr.no (Met Norway)"; 
+            else if (plainName.includes("AQICN")) desc = "ดัชนีคุณภาพอากาศ (AQI) จาก World Air Quality Index (AQICN)";
+            
+            document.getElementById('active-layer').innerText = "กำลังดู: " + plainName;
+            document.getElementById('layer-desc').innerHTML = `<div class="info-item">${desc}</div>`;
+            var sliderBox = document.getElementById('opacity-slider-box');
+            var slider = document.getElementById('opacity-slider');
+            if (e.layer.setOpacity || e.layer.setStyle) {
+                sliderBox.style.display = 'block'; slider.value = e.layer.options.opacity || 0.8;
+                slider.oninput = function() {
+                    if (e.layer.setOpacity) e.layer.setOpacity(this.value);
+                    if (e.layer.setStyle) e.layer.setStyle({ opacity: this.value, fillOpacity: this.value });
+                };
+            } else { sliderBox.style.display = 'none'; }
+        });
+
+        map.on('overlayremove', function(e) { document.getElementById('active-layer').innerText = "สถานะ: ไม่มีเลเยอร์"; document.getElementById('layer-desc').innerHTML = ""; document.getElementById('opacity-slider-box').style.display = 'none'; });
+
+        setInterval(() => { var d = new Date(); document.getElementById('time-box').innerText = d.toLocaleString('th-TH', { dateStyle: 'long', timeStyle: 'medium' }); }, 1000);
+
+        var datePicker = document.getElementById('nasa-date-picker');
+        datePicker.value = today;
+        datePicker.max = today;
+        datePicker.addEventListener('change', function() {
+            var newDate = this.value;
+            var url1 = `https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/VIIRS_NOAA20_CorrectedReflectance_TrueColor/default/${newDate}/GoogleMapsCompatible_Level9/{z}/{y}/{x}.png`;
+            var url2 = `https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/VIIRS_SNPP_CorrectedReflectance_TrueColor/default/${newDate}/GoogleMapsCompatible_Level9/{z}/{y}/{x}.png`;
+            noaa20.setUrl(url1);
+            snpp.setUrl(url2);
+        });
+    });
+
+    function toggleInfo() {
+        var panel = document.getElementById('info-panel');
+        var btn = panel.querySelector('.toggle-btn');
+        panel.classList.toggle('collapsed');
+        if (panel.classList.contains('collapsed')) { btn.innerHTML = "+"; btn.title = "ขยาย"; } else { btn.innerHTML = "−"; btn.title = "ย่อ"; }
+    }
+</script>
+
+</body>
+</html>
